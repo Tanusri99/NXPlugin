@@ -5,7 +5,7 @@
 namespace nx {
 namespace vms_server_plugins {
 namespace analytics {
-namespace aol_object_detection {
+namespace aol_color_detection {
 
 	class AppLogger
 	{

@@ -1,49 +1,62 @@
 // Copyright 2018-present Network Optix, Inc. Licensed under MPL 2.0: www.mozilla.org/MPL/2.0/
 
 #include "device_agent.h"
-
+#include "engine.h"
 #include <chrono>
 #include <exception>
 #include <cctype>
 #include <iostream>
-
-#include <opencv2/core.hpp>
-#include <opencv2/dnn/dnn.hpp>
+#include <thread>
+#include <filesystem>
 
 #include <nx/sdk/analytics/helpers/event_metadata.h>
 #include <nx/sdk/analytics/helpers/event_metadata_packet.h>
 #include <nx/sdk/analytics/helpers/object_metadata.h>
 #include <nx/sdk/analytics/helpers/object_metadata_packet.h>
+#include <nx/sdk/analytics/helpers/plugin.h>
+#include <nx/sdk/analytics/helpers/engine.h>
 #include <nx/sdk/helpers/string.h>
+#include <nx/sdk/i_device_info.h>
+#include <nx/sdk/helpers/string_map.h>
+#include <nx/sdk/helpers/settings_response.h>
+#include <nx/sdk/helpers/error.h>
+#include <nx/sdk/helpers/uuid_helper.h>
+#include <nx/kit/json.h>
+#include <nlohmann/json.hpp>
+#include <curl/curl.h>
 
-#include "detection.h"
-#include "exceptions.h"
-#include "frame.h"
 #include "kafka_consumer.h"
 
-namespace sample_company {
+namespace nx {
 namespace vms_server_plugins {
-namespace opencv_object_detection {
+namespace analytics {
+namespace aol_color_detection {
 
 using namespace nx::sdk;
 using namespace nx::sdk::analytics;
-
 using namespace std::string_literals;
 
 /**
- * @param deviceInfo Various information about the related device, such as its id, vendor, model,
- *     etc.
+ * Called when the Server opens a video-connection to the camera if the plugin is enabled for this
+ * camera.
+ *
+ * @param outResult The pointer to the structure which needs to be filled with the resulting value
+ *     or the error information.
+ * @param deviceInfo Contains various information about the related device such as its id, vendor,
+ *     model, etc.
  */
-DeviceAgent::DeviceAgent(
-    const nx::sdk::IDeviceInfo* deviceInfo,
-    std::filesystem::path pluginHomeDir):
-    // Call the DeviceAgent helper class constructor telling it to verbosely report to stderr.
-    ConsumingDeviceAgent(deviceInfo, /*enableOutput*/ true),
-    m_objectDetector(std::make_unique<ObjectDetector>(pluginHomeDir)),
-    m_objectTracker(std::make_unique<ObjectTracker>()),
+
+DeviceAgent::DeviceAgent(const nx::sdk::IDeviceInfo* deviceInfo, const std::filesystem::path& pluginHomeDir): 
+    ConsumingDeviceAgent(deviceInfo, true),
+    m_terminated(false), //Initialize the member variable
     m_kafkaConsumer("localhost:9092", "color_detection"),
-    m_running(true)
+    m_nxCamId(deviceInfo->id()) //Initialize the camera ID
 {
+    // Extract nxCamId from deviceInfo
+    //m_nxCamId = deviceInfo->id();
+    m_nxCamId.erase(std::remove(m_nxCamId.begin(), m_nxCamId.end(), '{'), m_nxCamId.end());
+    m_nxCamId.erase(std::remove(m_nxCamId.begin(), m_nxCamId.end(), '}'), m_nxCamId.end());
+
     m_kafkaConsumer.setMessageCallback([this](const std::string& message) {
         processKafkaMessage(message);
     });
@@ -51,86 +64,45 @@ DeviceAgent::DeviceAgent(
     m_kafkaConsumerThread = std::thread([this] {
         m_kafkaConsumer.start();
     });
-    
 }
 
 DeviceAgent::~DeviceAgent()
 {
-    m_running = false;
-    if(m_kafkaConsumerThread.joinable())
+    m_terminated = true; //Set the flag to terminate the thread
+    if (m_kafkaConsumerThread.joinable())
         m_kafkaConsumerThread.join();
 }
 
-/**
- *  @return JSON with the particular structure. Note that it is possible to fill in the values
- * that are not known at compile time, but should not depend on the DeviceAgent settings.
- */
+std::string DeviceAgent::getNxCamId() const
+{
+    return m_nxCamId; //Return the camera ID
+}
+
 std::string DeviceAgent::manifestString() const
 {
-    // Tell the Server that the plugin can generate the events and objects of certain types.
-    // Id values are strings and should be unique. Format of ids:
-    // `{vendor_id}.{plugin_id}.{event_type_id/object_type_id}`.
-    //
-    // See the plugin manifest for the explanation of vendor_id and plugin_id.
     return /*suppress newline*/ 1 + R"json(
 {
-    "eventTypes": [
-        {
-            "id": ")json" + kDetectionEventType + R"json(",
-            "name": "Object detected"
-        },
-        {
-            "id": ")json" + kProlongedDetectionEventType + R"json(",
-            "name": "Object detected (prolonged)",
-            "flags": "stateDependent"
-        }
-    ],
+    "eventTypes": [],
     "supportedTypes": [
         {
             "objectTypeId": ")json" + kPersonObjectType + R"json("
-        },
-        {
-            "objectTypeId": ")json" + kCatObjectType + R"json("
-        },
-        {
-            "objectTypeId": ")json" + kDogObjectType + R"json("
         }
     ]
 }
 )json";
 }
 
-/**
- * Called when the Server sends a new uncompressed frame from a camera.
- */
 bool DeviceAgent::pushUncompressedVideoFrame(const IUncompressedVideoFrame* videoFrame)
 {
-    m_terminated = m_terminated || m_objectDetector->isTerminated();
     if (m_terminated)
-    {
-        if (!m_terminatedPrevious)
-        {
-            pushPluginDiagnosticEvent(
-                IPluginDiagnosticEvent::Level::error,
-                "Plugin is in broken state.",
-                "Disable the plugin.");
-            m_terminatedPrevious = true;
-        }
         return true;
-    }
 
-    // Detecting objects only on every `kDetectionFramePeriod` frame.
-    if (m_frameIndex % kDetectionFramePeriod == 0)
+    const MetadataPacketList metadataPackets = processFrame(videoFrame);
+    for (const Ptr<IMetadataPacket>& metadataPacket: metadataPackets)
     {
-        const MetadataPacketList metadataPackets = processFrame(videoFrame);
-        for (const Ptr<IMetadataPacket>& metadataPacket: metadataPackets)
-        {
-            metadataPacket->addRef();
-            pushMetadataPacket(metadataPacket.get());
-        }
+        metadataPacket->addRef();
+        pushMetadataPacket(metadataPacket.get());
     }
-
-    ++m_frameIndex;
 
     return true;
 }
@@ -142,117 +114,65 @@ void DeviceAgent::doSetNeededMetadataTypes(
     if (m_terminated)
         return;
 
-    try
-    {
-        m_objectDetector->ensureInitialized();
-    }
-    catch (const ObjectDetectorInitializationError& e)
-    {
-        *outValue = {ErrorCode::otherError, new String(e.what())};
-        m_terminated = true;
-    }
-    catch (const ObjectDetectorIsTerminatedError& /*e*/)
-    {
-        m_terminated = true;
-    }
-};
-
-//-------------------------------------------------------------------------------------------------
-void DeviceAgent::initializeKafkaConsumer()
-{
-    m_kafkaConsumer.setMessageCallback([this](const std::string& message) {
-        processKafkaMessage(message);
-    });
     m_kafkaConsumer.start();
 }
 
 void DeviceAgent::processKafkaMessage(const std::string& message)
 {
-    nlohmann::json messageJson = nlohmann::json::parse(message);
+    auto messageJson = nlohmann::json::parse(message);
     std::string label = messageJson["label"];
     float confidence = messageJson["confidence"];
-    std::string topColors = messageJson["top_colors"];
-    std::string pantsColors = messageJson["pants_colors"];
-    std::string dominantColors = messageJson["dominant_colors"];
+    std::string top_colors = messageJson["top_colors"];
+    std::string pants_colors = messageJson["pants_colors"];
+    std::string dominant_colors = messageJson["dominant_colors"];
 
     // Handle the detection results based on your logic
     if (label == "person")
     {
         // Process top and pants color detection
-        std::cout << "Detected person with top color: " << topColors <<
-            " and pants color: " << pantsColors << std::endl;
+        std::cout << "Detected person with top color: " << top_colors <<
+            " and pants color: " << pants_colors << std::endl;
     }
     else
     {
         // Process other detections
-        std::cout << "Detected " << label << " with dominant color: " << dominantColors << std::endl;
+        std::cout << "Detected " << label << " with dominant color: " << dominant_colors << std::endl;
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-// private
-
-DeviceAgent::MetadataPacketList DeviceAgent::eventsToEventMetadataPacketList(
-    const EventList& events,
-    int64_t timestampUs)
+DeviceAgent::MetadataPacketList DeviceAgent::processFrame(
+    const nx::sdk::analytics::IUncompressedVideoFrame* videoFrame)
 {
-    if (events.empty())
-        return {};
+    // Fetch actual detections from Kafka
+    std::vector<Detection> detections = fetchDetectionsFromKafka();
+    const auto& objectMetadataPacket = detectionsToObjectMetadataPacket(detections, 0);
 
     MetadataPacketList result;
-
-    const auto objectDetectedEventMetadataPacket = makePtr<EventMetadataPacket>();
-
-    for (const std::shared_ptr<Event>& event: events)
-    {
-        const auto eventMetadata = makePtr<EventMetadata>();
-
-        if (event->eventType == EventType::detection_started ||
-            event->eventType == EventType::detection_finished)
-        {
-            static const std::string kStartedSuffix = " STARTED";
-            static const std::string kFinishedSuffix = " FINISHED";
-
-            const std::string suffix = (event->eventType == EventType::detection_started) ?
-                kStartedSuffix : kFinishedSuffix;
-            const std::string caption = kClassesToDetectPluralCapitalized.at(event->classLabel) +
-                " detection" + suffix;
-            const std::string description = caption;
-
-            eventMetadata->setCaption(caption);
-            eventMetadata->setDescription(description);
-            eventMetadata->setIsActive(event->eventType == EventType::detection_started);
-            eventMetadata->setTypeId(kProlongedDetectionEventType);
-
-            const auto eventMetadataPacket = makePtr<EventMetadataPacket>();
-            eventMetadataPacket->addItem(eventMetadata.get());
-            eventMetadataPacket->setTimestampUs(event->timestampUs);
-            result.push_back(eventMetadataPacket);
-        }
-        else if (event->eventType == EventType::object_detected)
-        {
-            std::string caption = event->classLabel + kDetectionEventCaptionSuffix;
-            caption[0] = (char) toupper(caption[0]);
-            std::string description = event->classLabel + kDetectionEventDescriptionSuffix;
-            description[0] = (char) toupper(description[0]);
-
-            eventMetadata->setCaption(caption);
-            eventMetadata->setDescription(description);
-            eventMetadata->setIsActive(true);
-            eventMetadata->setTypeId(kDetectionEventType);
-
-            objectDetectedEventMetadataPacket->addItem(eventMetadata.get());
-        }
-    }
-
-    objectDetectedEventMetadataPacket->setTimestampUs(timestampUs);
-    result.push_back(objectDetectedEventMetadataPacket);
+    if (objectMetadataPacket)
+        result.push_back(objectMetadataPacket);
 
     return result;
 }
 
+std::vector<Detection> DeviceAgent::fetchDetectionsFromKafka()
+{
+    std::vector<Detection> detections;
+    std::string message = m_kafkaConsumer.consume();
+    if (!message.empty()) {
+        nlohmann::json messageJson = nlohmann::json::parse(message);
+        Detection detection;
+        detection.label = messageJson["label"];
+        detection.confidence = messageJson["confidence"];
+        detection.topColor = messageJson["top_colors"];
+        detection.pantsColor = messageJson["pants_colors"];
+        detection.dominantColors = messageJson["dominant_colors"];
+        detections.push_back(detection);
+    }
+    return detections;
+}
+
 Ptr<ObjectMetadataPacket> DeviceAgent::detectionsToObjectMetadataPacket(
-    const DetectionList& detections,
+    const std::vector<Detection>& detections,
     int64_t timestampUs)
 {
     if (detections.empty())
@@ -260,23 +180,13 @@ Ptr<ObjectMetadataPacket> DeviceAgent::detectionsToObjectMetadataPacket(
 
     const auto objectMetadataPacket = makePtr<ObjectMetadataPacket>();
 
-    for (const std::shared_ptr<Detection>& detection: detections)
+    for (const Detection& detection: detections)
     {
         const auto objectMetadata = makePtr<ObjectMetadata>();
 
-        objectMetadata->setBoundingBox(detection->boundingBox);
-        objectMetadata->setConfidence(detection->confidence);
-        objectMetadata->setTrackId(detection->trackId);
-
-        // Convert class label to object metadata type id.
-        if (detection->classLabel == "person")
-            objectMetadata->setTypeId(kPersonObjectType);
-        else if (detection->classLabel == "cat")
-            objectMetadata->setTypeId(kCatObjectType);
-        else if (detection->classLabel == "dog")
-            objectMetadata->setTypeId(kDogObjectType);
-        // There is no "else", because only the detections with those types are generated.
-
+        // Use detection data to set metadata
+        objectMetadata->setTypeId(kPersonObjectType);
+        objectMetadata->setConfidence(detection.confidence);
         objectMetadataPacket->addItem(objectMetadata.get());
     }
     objectMetadataPacket->setTimestampUs(timestampUs);
@@ -284,70 +194,7 @@ Ptr<ObjectMetadataPacket> DeviceAgent::detectionsToObjectMetadataPacket(
     return objectMetadataPacket;
 }
 
-void DeviceAgent::reinitializeObjectTrackerOnFrameSizeChanges(const Frame& frame)
-{
-    const bool frameSizeUnset = m_previousFrameWidth == 0 && m_previousFrameHeight == 0;
-    if (frameSizeUnset)
-    {
-        m_previousFrameWidth = frame.width;
-        m_previousFrameHeight = frame.height;
-        return;
-    }
-
-    const bool frameSizeChanged = frame.width != m_previousFrameWidth ||
-        frame.height != m_previousFrameHeight;
-    if (frameSizeChanged)
-    {
-        m_objectTracker = std::make_unique<ObjectTracker>();
-        m_previousFrameWidth = frame.width;
-        m_previousFrameHeight = frame.height;
-    }
+} 
+} 
+} 
 }
-
-DeviceAgent::MetadataPacketList DeviceAgent::processFrame(
-    const IUncompressedVideoFrame* videoFrame)
-{
-    const Frame frame(videoFrame, m_frameIndex);
-
-    reinitializeObjectTrackerOnFrameSizeChanges(frame);
-
-    try
-    {
-        DetectionList detections = m_objectDetector->run(frame);
-        ObjectTracker::Result objectTrackerResult = m_objectTracker->run(frame, detections);
-        const auto& objectMetadataPacket =
-            detectionsToObjectMetadataPacket(objectTrackerResult.detections, frame.timestampUs);
-        const auto& eventMetadataPacketList = eventsToEventMetadataPacketList(
-            objectTrackerResult.events, frame.timestampUs);
-        MetadataPacketList result;
-        if (objectMetadataPacket)
-            result.push_back(objectMetadataPacket);
-        result.insert(
-            result.end(),
-            std::make_move_iterator(eventMetadataPacketList.begin()),
-            std::make_move_iterator(eventMetadataPacketList.end()));
-        return result;
-    }
-    catch (const ObjectDetectionError& e)
-    {
-        pushPluginDiagnosticEvent(
-            IPluginDiagnosticEvent::Level::error,
-            "Object detection error.",
-            e.what());
-        m_terminated = true;
-    }
-    catch (const ObjectTrackingError& e)
-    {
-        pushPluginDiagnosticEvent(
-            IPluginDiagnosticEvent::Level::error,
-            "Object tracking error.",
-            e.what());
-        m_terminated = true;
-    }
-
-    return {};
-}
-
-} // namespace opencv_object_detection
-} // namespace vms_server_plugins
-} // namespace sample_company

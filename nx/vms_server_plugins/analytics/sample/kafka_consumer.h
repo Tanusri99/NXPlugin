@@ -1,32 +1,27 @@
-#ifndef KAFKA_CONSUMER_H
-#define KAFKA_CONSUMER_H
+#pragma once
 
 #include <string>
 #include <thread>
-#include <atomic>
 #include <functional>
 #include <librdkafka/rdkafkacpp.h>
+#include <nlohmann/json.hpp>
 
 class KafkaConsumer {
 public:
-    using MessageCallback = std::function<void(const std::string&)>;
-
     KafkaConsumer(const std::string& brokers, const std::string& topic);
     ~KafkaConsumer();
 
+    void setMessageCallback(std::function<void(const std::string&)> callback);
     void start();
-    void stop();
-    void setMessageCallback(MessageCallback callback);
+    std::string consume(); // Change return type to std::string
 
 private:
-    void consume();
-
-    std::string brokers_;
-    std::string topic_;
-    std::unique_ptr<RdKafka::KafkaConsumer> consumer_;
-    std::thread consumeThread_;
-    std::atomic<bool> running_;
-    MessageCallback messageCallback_;
+    std::string m_brokers;
+    std::string m_topic;
+    std::function<void(const std::string&)> m_messageCallback;
+    std::thread m_consumerThread;
+    bool m_running;
+    RdKafka::KafkaConsumer* m_consumer;
+    RdKafka::Conf* m_conf;
+    RdKafka::Conf* m_tconf;
 };
-
-#endif // KAFKA_CONSUMER_H

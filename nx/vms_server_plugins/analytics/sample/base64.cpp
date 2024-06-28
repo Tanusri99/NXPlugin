@@ -3,7 +3,7 @@
 namespace nx {
 namespace vms_server_plugins {
 namespace analytics {
-namespace aol_object_detection {
+namespace aol_color_detection {
 
     static const std::string base64_chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"

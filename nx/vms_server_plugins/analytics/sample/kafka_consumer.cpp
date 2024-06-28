@@ -2,52 +2,59 @@
 #include <iostream>
 
 KafkaConsumer::KafkaConsumer(const std::string& brokers, const std::string& topic)
-    : brokers_(brokers), topic_(topic), running_(false) {
-    std::string errstr;
-    RdKafka::Conf *conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
-    conf->set("metadata.broker.list", brokers_, errstr);
+    : m_brokers(brokers), m_topic(topic), m_running(false), m_consumer(nullptr), m_conf(nullptr), m_tconf(nullptr)
+{
+    m_conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
+    m_tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
 
-    consumer_.reset(RdKafka::KafkaConsumer::create(conf, errstr));
-    if (!consumer_) {
+    std::string errstr;
+    m_conf->set("metadata.broker.list", m_brokers, errstr);
+
+    m_consumer = RdKafka::KafkaConsumer::create(m_conf, errstr);
+    if (!m_consumer) {
         std::cerr << "Failed to create consumer: " << errstr << std::endl;
     }
 
-    delete conf;
+    m_consumer->subscribe({m_topic});
 }
 
-KafkaConsumer::~KafkaConsumer() {
-    stop();
+KafkaConsumer::~KafkaConsumer()
+{
+    m_running = false;
+    if (m_consumerThread.joinable())
+        m_consumerThread.join();
+    if (m_consumer)
+        m_consumer->close();
+    delete m_consumer;
+    delete m_conf;
+    delete m_tconf;
 }
 
-void KafkaConsumer::start() {
-    if (running_) return;
-
-    running_ = true;
-    consumeThread_ = std::thread(&KafkaConsumer::consume, this);
+void KafkaConsumer::setMessageCallback(std::function<void(const std::string&)> callback)
+{
+    m_messageCallback = callback;
 }
 
-void KafkaConsumer::stop() {
-    if (!running_) return;
-
-    running_ = false;
-    if (consumeThread_.joinable()) {
-        consumeThread_.join();
-    }
-}
-
-void KafkaConsumer::setMessageCallback(MessageCallback callback) {
-    messageCallback_ = callback;
-}
-
-void KafkaConsumer::consume() {
-    while (running_) {
-        std::unique_ptr<RdKafka::Message> msg(consumer_->consume(1000));
-        if (msg->err() == RdKafka::ERR_NO_ERROR) {
-            if (messageCallback_) {
-                messageCallback_(std::string(static_cast<const char*>(msg->payload()), msg->len()));
+void KafkaConsumer::start()
+{
+    m_running = true;
+    m_consumerThread = std::thread([this] {
+        while (m_running) {
+            std::string message = this->consume();
+            if (!message.empty() && m_messageCallback) {
+                m_messageCallback(message);
             }
-        } else if (msg->err() != RdKafka::ERR__TIMED_OUT) {
-            std::cerr << "Consume error: " << msg->errstr() << std::endl;
         }
+    });
+}
+
+std::string KafkaConsumer::consume()
+{
+    std::string message_str;
+    RdKafka::Message* message = m_consumer->consume(1000);
+    if (message->err() == RdKafka::ERR_NO_ERROR) {
+        message_str = std::string(static_cast<const char*>(message->payload()), message->len());
     }
+    delete message;
+    return message_str;
 }

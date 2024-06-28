@@ -2,23 +2,36 @@
 
 #pragma once
 
+#include <vector>
 #include <filesystem>
 #include <thread>
-#include <atomic>
-
 #include <nx/sdk/analytics/helpers/event_metadata_packet.h>
 #include <nx/sdk/analytics/helpers/object_metadata_packet.h>
 #include <nx/sdk/analytics/helpers/consuming_device_agent.h>
 #include <nx/sdk/helpers/uuid_helper.h>
+#include <nx/sdk/analytics/i_uncompressed_video_frame.h>
+#include <nx/sdk/analytics/i_metadata_types.h>
 #include <nx/sdk/ptr.h>
+#include <nx/sdk/i_device_info.h>
+#include "kafka_consumer.h"
+#include "detection.h"
 
-#include "engine.h"
-#include "object_detector.h"
-#include "object_tracker.h"
-
-namespace sample_company {
+namespace nx {
 namespace vms_server_plugins {
-namespace opencv_object_detection {
+namespace analytics {
+namespace aol_color_detection {
+
+using namespace nx::sdk;
+using namespace nx::sdk::analytics;
+/**
+ * Called when the Server opens a video-connection to the camera if the plugin is enabled for this
+ * camera.
+ *
+ * @param outResult The pointer to the structure which needs to be filled with the resulting value
+ *     or the error information.
+ * @param deviceInfo Contains various information about the related device such as its id, vendor,
+ *     model, etc.
+ */
 
 class DeviceAgent: public nx::sdk::analytics::ConsumingDeviceAgent
 {
@@ -26,14 +39,10 @@ public:
     using MetadataPacketList = std::vector<nx::sdk::Ptr<nx::sdk::analytics::IMetadataPacket>>;
 
 public:
-    DeviceAgent(
-        const nx::sdk::IDeviceInfo* deviceInfo,
-        std::string kafkaPort,
-        std::string kafkaTopic,
-        std:: string kafkaIP,
-        std::filesystem::path pluginHomeDir);
+    DeviceAgent(const nx::sdk::IDeviceInfo* deviceInfo, const std::filesystem::path& pluginHomeDir);
+    ~DeviceAgent();
 
-    virtual ~DeviceAgent() override;
+    std::string getNxCamId() const;
 
 protected:
     virtual std::string manifestString() const override;
@@ -41,65 +50,30 @@ protected:
     virtual bool pushUncompressedVideoFrame(
         const nx::sdk::analytics::IUncompressedVideoFrame* videoFrame) override;
 
-    virtual bool pullMetadataPackets(
-        std::vector<nx::sdk::analytics::IMetadataPacket*>* metadataPackets) override;
-
-    virtual nx::sdk::Result<const nx::sdk::ISettingsResponse*> settingsReceived() override; 
-
     virtual void doSetNeededMetadataTypes(
         nx::sdk::Result<void>* outValue,
         const nx::sdk::analytics::IMetadataTypes* neededMetadataTypes) override;
 
 private:
-    void reinitializeObjectTrackerOnFrameSizeChanges(const Frame& frame);
+    bool m_terminated = false; //Initialize the member variable
+    void processKafkaMessage(const std::string& message);
+    MetadataPacketList processFrame(const nx::sdk::analytics::IUncompressedVideoFrame* videoFrame);
+    std::vector<Detection> fetchDetectionsFromKafka();
 
     nx::sdk::Ptr<nx::sdk::analytics::ObjectMetadataPacket> detectionsToObjectMetadataPacket(
-        const DetectionList& detections,
+        const std::vector<Detection>& detections,
         int64_t timestampUs);
-
-    MetadataPacketList eventsToEventMetadataPacketList(
-        const EventList& events,
-        int64_t timestampUs);
-
-    MetadataPacketList processFrame(
-        const nx::sdk::analytics::IUncompressedVideoFrame* videoFrame);
-
-    // Kafka consumer
-    void initializeKafkaConsumer();
-    void processKafkaMessage(const std::string& message);
 
 private:
     const std::string kPersonObjectType = "nx.base.Person";
-    const std::string kCatObjectType = "nx.base.Cat";
-    const std::string kDogObjectType = "nx.base.Dog";
 
-    const std::string kDetectionEventType = "sample.opencv_object_detection.detection";
-    const std::string kDetectionEventCaptionSuffix = " detected";
-    const std::string kDetectionEventDescriptionSuffix = " detected";
-
-    const std::string kProlongedDetectionEventType =
-        "sample.opencv_object_detection.prolongedDetection";
-
-    /** Should work on modern PCs. */
-    static constexpr int kDetectionFramePeriod = 2;
-
-private:
-    bool m_terminated = false;
-    bool m_terminatedPrevious = false;
-    const std::unique_ptr<ObjectDetector> m_objectDetector;
-    std::unique_ptr<ObjectTracker> m_objectTracker;
-    int m_frameIndex = 0; /**< Used for generating the detection in the right place. */
-
-    // Used for checking whether the frame size changed, and for reinitializing the tracker.
-    int m_previousFrameWidth = 0;
-    int m_previousFrameHeight = 0;
-
-    // Used for checking whether the frame rate changed, and for reinitializing the tracker.
+    bool m_running = true;
     KafkaConsumer m_kafkaConsumer;
     std::thread m_kafkaConsumerThread;
-    std::atomic<bool> m_running{false};
+    std::string m_nxCamId;
 };
 
 } // namespace opencv_object_detection
 } // namespace vms_server_plugins
 } // namespace sample_company
+} // namespace nx
