@@ -77,29 +77,64 @@ namespace aol_color_detection {
 
 	const int NUM_OBJECTS=15;
 	// objects
-	const std::string kPersonObjectType = "aol.object_detection.person";
-    const std::string kCarObjectType = "aol.object_detection.car";
-	const std::string kBicycleObjectType = "aol.object_detection.bicycle";
-    const std::string kMotorbikeObjectType = "aol.object_detection.motorbike";
-	const std::string kAeroplaneObjectType = "aol.object_detection.aeroplane";
-	const std::string kBusObjectType = "aol.object_detection.bus";
-	const std::string kTrainObjectType = "aol.object_detection.train";
-	const std::string kTruckObjectType = "aol.object_detection.truck";
-	const std::string kBoatObjectType = "aol.object_detection.boat";
+	const std::string kPersonObjectType = "aol.color_detection.person";
+    const std::string kCarObjectType = "aol.color_detection.car";
+	const std::string kBicycleObjectType = "aol.color_detection.bicycle";
+    const std::string kMotorbikeObjectType = "aol.color_detection.motorbike";
+	const std::string kAeroplaneObjectType = "aol.color_detection.aeroplane";
+	const std::string kBusObjectType = "aol.color_detection.bus";
+	const std::string kTrainObjectType = "aol.color_detection.train";
+	const std::string kTruckObjectType = "aol.color_detection.truck";
+	const std::string kBoatObjectType = "aol.color_detection.boat";
 	// animals
-	const std::string kDogObjectType = "aol.object_detection.dog";
-	const std::string kCatObjectType = "aol.object_detection.cat";
-	const std::string kHorseObjectType = "aol.object_detection.horse";
+	const std::string kDogObjectType = "aol.color_detection.dog";
+	const std::string kCatObjectType = "aol.color_detection.cat";
+	const std::string kHorseObjectType = "aol.color_detection.horse";
 	// personal
-	const std::string kBackpackObjectType = "aol.object_detection.backpack";
-	const std::string kHandbagObjectType = "aol.object_detection.handbag";
-	const std::string kCellPhoneObjectType = "aol.object_detection.cell_phone";
+	const std::string kBackpackObjectType = "aol.color_detection.backpack";
+	const std::string kHandbagObjectType = "aol.color_detection.handbag";
+	const std::string kCellPhoneObjectType = "aol.color_detection.cell_phone";
 
-    const std::string kNewTrackEventType = "aol.object_detection.newTrackEvent";
-	const std::string kEndTrackEventType = "aol.object_detection.endTrackEvent";
+    const std::string kNewTrackEventType = "aol.color_detection.newTrackEvent";
+	const std::string kEndTrackEventType = "aol.color_detection.endTrackEvent";
 
-	const std::string kObjectDetectedEventType = "aol.object_detection.objectDetectEvent";
-	const std::string kObjectCountEventType = "aol.object_detection.objectCountEvent";
+	const std::string kObjectDetectedEventType = "aol.color_detection.objectDetectEvent";
+	const std::string kObjectCountEventType = "aol.color_detection.objectCountEvent";
+
+	const std::string kThrowPluginDiagnostics = "nx.aol_corsight_plugin.diagnotics";
+    const std::string kDetailedLogs = "nx.aol_corsight_plugin.detailed.logs";
+
+    const std::string kFramePeriodSetting = "nx.aol_corsight_plugin.period";
+    const std::string kDurationSettings = "nx.aol_corsight_plugin.duration";
+
+    const std::string kPersonOfInterestObject = "nx.aol_corsight_plugin.person_identified";
+    const std::string kPersonUnknownObject = "nx.aol_corsight_plugin.person_unidentified";
+
+    const std::string kPersonFaceMatchEvent = "nx.aol_corsight_plugin.matchevent";
+    const std::string kPersonFaceNoMatchEvent = "nx.aol_corsight_plugin.nomatchevent";
+    
+    const std::string kCorsightAppIP = "nx.aol_corsight_plugin.corsightAppIP";
+    const std::string kCorsightAppPort = "nx.aol_corsight_plugin.corsigntAppPort";
+    
+    const std::string kMinConfidence = "nx.aol_corsight_plugin.minconfidence";
+    
+    
+    const std::string kKafkaPort = "nx.aol_corsight_plugin.kafkaport";
+    const std::string kKafkaIP = "nx.aol_corsight_plugin.kafka_IP";
+    
+    // device agents
+
+    const std::string kAgeEnabled = "nx.aol_corsight_plugin.enabler.age_enabled";
+    const std::string kGenderEnabled = "nx.aol_corsight_plugin.enabler.gender_enabled";
+    const std::string kMaskEnabled = "nx.aol_corsight_plugin.enabler.mask_enabled";
+    const std::string kPOIMatchEnabled = "nx.aol_corsight_plugin.enabler.poi_enabled";
+
+    const std::string kDisplayColor = "nx.aol_corsight_plugin.enabler.display_color";
+
+    // enum types
+    const std::string kAgeEnum = "nx.aol_corsight_plugin.enabler.age_enum";
+    const std::string kGenderEnum = "nx.aol_corsight_plugin.enabler.gender_enum";
+    const std::string kMaskEnum = "nx.aol_corsight_plugin.enabler.mask_enum";
 	
 	// for quick lookup
 	const std::string PERSON="person";
@@ -137,9 +172,9 @@ namespace aol_color_detection {
 	const std::string kEnablePhone{"enablePhone"};
 
 	// region of interest
-	const std::string kPolygonEnabled = "aol.object_detection.polygonEnabled";
-	const std::string kPolygonRegion = "aol.object_detection.polygonRegion";
-	const std::string kPolygonInsideOnly = "aol.object_detection.insideOnly";
+	const std::string kPolygonEnabled = "aol.color_detection.polygonEnabled";
+	const std::string kPolygonRegion = "aol.color_detection.polygonRegion";
+	const std::string kPolygonInsideOnly = "aol.color_detection.insideOnly";
 
 	int getObjectNamesList(std::vector<std::string> &objectNamesList);
 

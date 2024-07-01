@@ -18,9 +18,9 @@ namespace aol_color_detection {
 	{
 			
 #ifdef _WIN32
-		dataPath= "C:\\aol\\aol_objects.dat";
+		dataPath= "C:\\aol\\aol_colors.dat";
 #else
-		dataPath="/usr/local/share/aol/aol_objects.dat";
+		dataPath="/usr/local/share/aol_colors.dat";
 
 #endif
 		
@@ -32,9 +32,9 @@ namespace aol_color_detection {
 	{
 		
 #ifdef _WIN32
-		logPath = "C:\\aol\\aol_objects_plugin.log";
+		logPath = "C:\\aol\\aol_colors_plugin.log";
 #else
-		logPath = "/usr/local/share/aol/aol_objects_plugin.log";
+		logPath = "/usr/local/share/aol_colors_plugin.log";
 
 #endif
 		return true;
@@ -44,9 +44,9 @@ namespace aol_color_detection {
 	{
 
 #ifdef _WIN32
-		logPath = "C:\\aol\\aol_objects_plugin.log";
+		logPath = "C:\\aol\\aol_colors_plugin.log";
 #else
-		logPath = "/usr/local/share/aol/aol_objects_plugin.log";
+		logPath = "/usr/local/share/aol_colors_plugin.log";
 
 #endif
 		return true;
@@ -93,7 +93,7 @@ namespace aol_color_detection {
 
 					appDataFile = "C:/temp/aolobjects.dat";
 #else
-					appDataFile = "/tmp/aolobjects.dat";
+					appDataFile = "/tmp/aolcolors.dat";
 
 #endif
 
@@ -172,7 +172,7 @@ namespace aol_color_detection {
 
 					appDataFile = "C:/temp/aolobjects.dat";
 #else
-					appDataFile = "/tmp/aolobjects.dat";
+					appDataFile = "/tmp/aolcolors.dat";
 
 #endif
 
@@ -277,9 +277,9 @@ namespace aol_color_detection {
 
 	void AppLogger::clear()
 	{
-		std::string outFile = "/usr/local/share/aol/aol_objects_plugin.log";
+		std::string outFile = "/usr/local/share/aol_colors_plugin.log";
 	#ifdef _WIN32
-		outFile = "C:\\aol\\aol_objects_plugin.log";
+		outFile = "C:\\aol\\aol_colors_plugin.log";
 	#endif
 
 		try
@@ -291,9 +291,9 @@ namespace aol_color_detection {
 		catch (const std::exception&)
 		{
 #ifdef _WIN32
-			outFile = "C:/temp/aol_objects_plugin.log";
+			outFile = "C:/temp/aol_colors_plugin.log";
 #else
-			outFile = "/tmp/aol_objects_plugin.log";
+			outFile = "/tmp/aol_colors_plugin.log";
 #endif
 			std::ofstream outStream(outFile, std::ofstream::out | std::ofstream::trunc);
 			outStream << "" << std::endl;
@@ -339,9 +339,9 @@ namespace aol_color_detection {
 				{
 					// backup log
 #ifdef _WIN32
-					outFile = "C:/temp/aol_objects_plugin.log";
+					outFile = "C:/temp/aol_colors_plugin.log";
 #else
-					outFile = "/tmp/aol_objects_plugin.log";
+					outFile = "/tmp/aol_colors_plugin.log";
 #endif
 					std::ofstream outStream2(outFile, std::ios_base::app);
 					outStream2 << output << std::endl;
