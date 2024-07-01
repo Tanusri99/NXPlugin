@@ -16,6 +16,7 @@
 #include <nx/sdk/i_device_info.h>
 #include "kafka_consumer.h"
 #include "engine.h"
+#include <jsoncpp/json/json.h>
 
 namespace nx {
 namespace vms_server_plugins {
